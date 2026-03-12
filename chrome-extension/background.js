@@ -209,6 +209,20 @@ async function generateCommentGroq(postText, authorName) {
  * @returns {Promise<string>} Generated comment
  */
 async function generateCommentGemini(postText, authorName) {
+  const masterPrompt = `You are a software engineer who builds AI agents and automation tools. You are networking on LinkedIn and reading a post from a Talent Acquisition or HR manager. Write a brief, professional, and natural 1-2 sentence comment reacting to this post.
+Rules:
+
+Agree with the premise or add a brief technical insight.
+
+Do NOT use hashtags or emojis.
+
+Do NOT sound overly enthusiastic or robotic.
+
+Do NOT introduce yourself or mention you are looking for a job.
+
+Speak casually but professionally.
+Here is the post: "${postText}"`;
+
   const response = await fetch(`https://generativelanguage.googleapis.com/v1beta/models/gemini-2.0-flash:generateContent?key=${CONFIG.GEMINI_API_KEY}`, {
     method: 'POST',
     headers: {
@@ -217,7 +231,7 @@ async function generateCommentGemini(postText, authorName) {
     body: JSON.stringify({
       contents: [{
         parts: [{
-          text: `You are a professional LinkedIn networker. Generate a thoughtful, concise comment (max 280 characters) that adds value to the post, is conversational and genuine, and shows you've read the content carefully. Write a comment for ${authorName}'s LinkedIn post. The post says: "${postText}"`
+          text: masterPrompt
         }]
       }],
       generationConfig: {
