@@ -16,7 +16,7 @@ const CONFIG = {
   // GROQ_API_KEY: 'YOUR_GROQ_API_KEY_HERE',
   
   // Or use Gemini API - get at https://aistudio.google.com/app/apikey
-  // GEMINI_API_KEY: 'YOUR_GEMINI_API_KEY_HERE',
+  GEMINI_API_KEY: 'AIzaSyChrzfL6U37pkN__XuPpHRVQORIDederJ8',
   
   // Which AI provider to use: 'groq' or 'gemini'
   AI_PROVIDER: 'gemini',
