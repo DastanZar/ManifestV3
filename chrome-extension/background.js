@@ -13,13 +13,13 @@
  */
 const CONFIG = {
   // Groq API key - get free at https://console.groq.com/
-  GROQ_API_KEY: 'YOUR_GROQ_API_KEY_HERE',
+  // GROQ_API_KEY: 'YOUR_GROQ_API_KEY_HERE',
   
   // Or use Gemini API - get at https://aistudio.google.com/app/apikey
   // GEMINI_API_KEY: 'YOUR_GEMINI_API_KEY_HERE',
   
   // Which AI provider to use: 'groq' or 'gemini'
-  AI_PROVIDER: 'groq',
+  AI_PROVIDER: 'gemini',
   
   // Maximum connections/comments per day
   DAILY_LIMIT: 25,
