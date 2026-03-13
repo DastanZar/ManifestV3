@@ -527,7 +527,8 @@ function extractProfilesFromSearch() {
  * @returns {Promise<boolean>} Success status
  */
 async function clickConnectButton() {
-  const button = findConnectButton();
+  console.log('[Content] Waiting for Connect button to render...');
+  const button = await waitForElement(() => findConnectButton(), 15000);
   
   if (button) {
     console.log('[Content] Found connect button');
@@ -634,6 +635,251 @@ async function logSuccessfulContact(profile) {
       () => resolve()
     );
   });
+}
+
+// =====================================================
+// SPA RENDERING - MUTATION OBSERVER & URL CHANGE DETECTION
+// =====================================================
+
+let isProcessing = false;
+let lastUrl = window.location.href;
+let observerInterval = null;
+let pollInterval = null;
+
+/**
+ * Wait for DOM elements to appear before executing
+ * Uses both MutationObserver and polling as fallback
+ * @param {Function} targetFn - Function that returns target element
+ * @param {number} timeout - Max time to wait in ms (default 30000)
+ * @returns {Promise<HTMLElement|null>}
+ */
+async function waitForElement(targetFn, timeout = 30000) {
+  console.log("Waiting for DOM elements to render...");
+  
+  // First check if element already exists
+  const existingElement = targetFn();
+  if (existingElement) {
+    console.log("[Content] Target element found immediately");
+    return existingElement;
+  }
+
+  return new Promise((resolve) => {
+    const startTime = Date.now();
+    
+    // MutationObserver to watch for DOM changes
+    const observer = new MutationObserver(() => {
+      const element = targetFn();
+      if (element) {
+        console.log("[Content] Target element found via MutationObserver");
+        observer.disconnect();
+        resolve(element);
+      }
+    });
+    
+    observer.observe(document.body, {
+      childList: true,
+      subtree: true
+    });
+    
+    // Polling fallback (in case MutationObserver misses something)
+    const pollStartTime = Date.now();
+    const pollFn = () => {
+      const element = targetFn();
+      if (element) {
+        console.log("[Content] Target element found via polling");
+        observer.disconnect();
+        resolve(element);
+        return;
+      }
+      
+      if (Date.now() - pollStartTime > timeout) {
+        console.log("[Content] Timeout waiting for element");
+        observer.disconnect();
+        resolve(null);
+        return;
+      }
+    };
+    
+    pollInterval = setInterval(pollFn, 500);
+    
+    // Also set a timeout to clean up
+    setTimeout(() => {
+      observer.disconnect();
+      if (pollInterval) {
+        clearInterval(pollInterval);
+      }
+      const element = targetFn();
+      resolve(element);
+    }, timeout);
+  });
+}
+
+/**
+ * Check if we're on a LinkedIn search results page
+ * @returns {boolean}
+ */
+function isSearchResultsPage() {
+  return window.location.href.includes('/search/') || 
+         document.querySelector('.reusable-search') !== null ||
+         document.querySelector('[data-test-search-result]') !== null;
+}
+
+/**
+ * Check if we're on a profile page
+ * @returns {boolean}
+ */
+function isProfilePage() {
+  return window.location.href.includes('/in/') && 
+         document.querySelector('.pv-top-card') !== null;
+}
+
+/**
+ * Detect URL changes (History API)
+ */
+function setupUrlChangeDetection() {
+  // Listen for popstate (back/forward navigation)
+  window.addEventListener('popstate', () => {
+    console.log("[Content] URL changed (popstate):", window.location.href);
+    handleUrlChange();
+  });
+  
+  // Override pushState to detect programmatic navigation
+  const originalPushState = window.history.pushState;
+  window.history.pushState = function(...args) {
+    console.log("[Content] URL changed (pushState):", args[2]);
+    handleUrlChange();
+    return originalPushState.apply(this, args);
+  };
+  
+  // Override replaceState
+  const originalReplaceState = window.history.replaceState;
+  window.history.replaceState = function(...args) {
+    console.log("[Content] URL changed (replaceState):", args[2]);
+    handleUrlChange();
+    return originalReplaceState.apply(this, args);
+  };
+}
+
+/**
+ * Handle URL changes - re-trigger processing
+ */
+function handleUrlChange() {
+  const newUrl = window.location.href;
+  
+  if (newUrl !== lastUrl) {
+    console.log("[Content] Page changed from", lastUrl, "to", newUrl);
+    lastUrl = newUrl;
+    
+    // Reset processing state if we were processing
+    isProcessing = false;
+    
+    // Small delay to let the page settle
+    setTimeout(() => {
+      console.log("[Content] Ready to process new page");
+    }, 1000);
+  }
+}
+
+/**
+ * Listen for messages from background script to trigger processing
+ */
+function setupBackgroundMessageListener() {
+  chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
+    if (message.type === 'START_PROCESSING') {
+      handleStartProcessing().then(() => sendResponse({ success: true }));
+      return true;
+    }
+    
+    if (message.type === 'GET_PROFILES') {
+      handleGetProfiles().then(() => sendResponse({ success: true }));
+      return true;
+    }
+    
+    if (message.type === 'URL_CHANGED') {
+      // Background script notifying us of URL change
+      handleUrlChange();
+      sendResponse({ received: true });
+      return true;
+    }
+  });
+}
+
+/**
+ * Wrapper for startProcessing with SPA handling
+ */
+async function handleStartProcessing() {
+  if (isProcessing) {
+    console.log("[Content] Already processing, skipping");
+    return;
+  }
+  
+  isProcessing = true;
+  
+  try {
+    await startProcessing();
+  } catch (error) {
+    console.error("[Content] Error in processing:", error);
+  } finally {
+    isProcessing = false;
+  }
+}
+
+/**
+ * Wrapper for getProfiles with SPA handling
+ */
+async function handleGetProfiles() {
+  console.log("[Content] Getting profiles from search results");
+  
+  // Wait for search results to render
+  await waitForElement(() => {
+    return document.querySelector('.reusable-search__result-container') ||
+           document.querySelector('[data-test-search-result]') ||
+           document.querySelector('li.reusable-search__result-container');
+  }, 15000);
+  
+  // Additional wait for React to render
+  await sleepMs(1000, 2000);
+  
+  const profiles = extractProfilesFromSearch();
+  console.log(`[Content] Found ${profiles.length} profiles`);
+  
+  return { profiles };
+}
+
+/**
+ * Initialize SPA handling - call this at the end of the script
+ */
+function initializeSpaHandling() {
+  console.log("[Content] Initializing SPA handling...");
+  
+  // Set up URL change detection
+  setupUrlChangeDetection();
+  
+  // Set up background message listener
+  setupBackgroundMessageListener();
+  
+  // Set up a MutationObserver to detect major page changes
+  const pageObserver = new MutationObserver((mutations) => {
+    // Check if the main content area changed significantly
+    const hasSignificantChange = mutations.some(mutation => {
+      return mutation.addedNodes.length > 0 || mutation.removedNodes.length > 0;
+    });
+    
+    if (hasSignificantChange) {
+      // Debounce URL check
+      clearTimeout(observerInterval);
+      observerInterval = setTimeout(() => {
+        handleUrlChange();
+      }, 500);
+    }
+  });
+  
+  pageObserver.observe(document.body, {
+    childList: true,
+    subtree: true
+  });
+  
+  console.log("[Content] SPA handling initialized");
 }
 
 // =====================================================
@@ -763,6 +1009,17 @@ async function startProcessing() {
     return;
   }
   
+  // Wait for profile page to render fully
+  console.log('[Content] Waiting for profile page to render...');
+  await waitForElement(() => {
+    return document.querySelector('.pv-top-card') ||
+           document.querySelector('[data-test-id="profile-header"]') ||
+           document.querySelector('h1.text-heading-xlarge');
+  }, 20000);
+  
+  // Additional wait for React
+  await sleepMs(1500, 3000);
+  
   // Process the profile
   await processProfile(response.profile);
 }
@@ -770,15 +1027,17 @@ async function startProcessing() {
 // Listen for messages from popup or background
 chrome.runtime.onMessage.addListener((message, sender, sendResponse) => {
   if (message.type === 'START_PROCESSING') {
-    startProcessing().then(() => sendResponse({ success: true }));
+    handleStartProcessing().then(() => sendResponse({ success: true }));
     return true;
   }
   
   if (message.type === 'GET_PROFILES') {
-    const profiles = extractProfilesFromSearch();
-    sendResponse({ profiles });
+    handleGetProfiles().then(() => sendResponse({ success: true }));
     return true;
   }
 });
+
+// Initialize SPA handling
+initializeSpaHandling();
 
 console.log('[Content] LinkedIn Auto-Connect Agent content script loaded');
